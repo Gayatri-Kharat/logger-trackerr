@@ -1,0 +1,5 @@
+{
+  "name": "Logger Tracker",
+  "description": "A sophisticated UI for managing temporary log level overrides across distributed environments, featuring automated reset timers and AI-assisted diagnostics.",
+  "requestFramePermissions": []
+}
