@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "proxy": "https://keycloak-vfde-il08-env24-runtime.apps.ildelocpvfd408.ocpd.corp.amdocs.com",
+  "_proxy": "https://amd-apigw-vfde-il08-env24-runtime.apps.ildelocpvfd408.ocpd.corp.amdocs.com/lightTracer/v1/managementLoggers",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

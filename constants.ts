@@ -1,5 +1,5 @@
 
-import type { Environment, Service, LogLevel, SavedProfile, Cluster, AppConfig } from './types';
+import type { Environment, LogLevel, SavedProfile, Cluster, AppConfig } from './types';
 
 // ==========================================
 // 🔧 CONFIGURATION AREA
@@ -50,8 +50,8 @@ export const API_PATHS = {
   DISCOVERY: '/lightTracer/v1/managementLoggers',
   
   // Auth Token Endpoint appended to AUTH_URL_TEMPLATE
-  // CRITICAL: Matches specific structure: /auth/realms/apigw/protocol/openid-connect/token
-  AUTH_TOKEN: '/auth/realms/apigw/protocol/openid-connect/token',
+  // CRITICAL: Matches specific structure: /auth/realms/{realm}/protocol/openid-connect/token
+  AUTH_TOKEN: '/auth/realms/{realm}/protocol/openid-connect/token',
     
   // Endpoint to post log level changes
   UPDATE_LEVEL: '/lightTracer/v1/managementLoggers' 
@@ -59,31 +59,20 @@ export const API_PATHS = {
 
 export const SAVED_PROFILES: SavedProfile[] = getAppConfig()?.SAVED_PROFILES || [
   { id: 'csruser', label: 'CSR User', username: 'csruser', password: 'Unix11!' },
-  { id: 'dunning', label: 'Dunning User', username: 'dunninhuser', password: '[Credentials]' },
-  { id: 'titan', label: 'Titan User', username: 'titan-user', password: '[Credentials]' },
-  { id: 'batch', label: 'Batch Migration', username: 'bm-intergation-user', password: '[Credentials]' },
-  { id: 'som', label: 'SOM Integration', username: 'som-intergation-user', password: '[Credentials]' },
-  { id: 'admin', label: 'SysAdmin (Reference)', username: 'admin_ops', password: '[Credentials]' },
+  { id: 'dunning', label: 'Dunning User', username: 'dunninhuser', password: 'Unix11!' },
+  { id: 'titan', label: 'Titan User', username: 'titan-user', password: 'Unix11!' },
+  { id: 'batch', label: 'Batch Migration', username: 'bm-intergation-user', password: 'Unix11!' },
+  { id: 'som', label: 'SOM Integration', username: 'som-intergation-user', password: 'Unix11!' },
+  { id: 'admin', label: 'SysAdmin (Reference)', username: 'admin_ops', password: 'Unix11!' },
 ];
 
 // Options for Client ID Dropdown with specific passwords (Reference)
 export const CLIENT_ID_OPTIONS = [
-  { value: 'apigw', label: 'csruser', password: 'Unix11!' },
+  { value: 'apigw', label: 'CSRUSER', password: 'Unix11!' },
   { value: 'dunninhuser', label: 'DUNNING', password: 'Unix11!_sup' },
   { value: 'titan-user', label: 'TITAN_USEER', password: 'Unix11!_aud' },
   { value: 'bm-intergation-user', label: 'BATCH_MIGRATION', password: 'Unix11!_gw' },
   { value: 'som-intergation-user', label: 'SOM', password: 'Unix11!_gw' }
-];
-
-export const DEMO_SERVICES: Service[] = getAppConfig()?.DEMO_SERVICES || [
-  { id: 'auth-svc', name: 'Authentication Service', defaultLevel: 'ERROR' },
-  { id: 'order-api', name: 'Order Processing API', defaultLevel: 'ERROR' },
-  { id: 'payment-gw', name: 'Payment Gateway', defaultLevel: 'ERROR' },
-  { id: 'inventory-svc', name: 'Inventory Manager', defaultLevel: 'ERROR' },
-  { id: 'notif-svc', name: 'Notification Service', defaultLevel: 'ERROR' },
-  { id: 'cart-svc', name: 'Shopping Cart Service', defaultLevel: 'ERROR' },
-  { id: 'search-idx', name: 'Search Indexer', defaultLevel: 'WARN' },
-  { id: 'rec-engine', name: 'Recommendation Engine', defaultLevel: 'INFO' },
 ];
 
 export const LOG_LEVELS: LogLevel[] = ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR'];
@@ -97,3 +86,21 @@ export const DURATION_OPTIONS = [
 ];
 
 export const EXPIRY_WARNING_THRESHOLD_MS = 60 * 1000;
+
+export const DEFAULT_DISCOVERY_PAYLOAD = {
+    "services": [
+        {
+            "name": "productorder-returnnotecust-service",
+            "loggers": [
+                {
+                    "name": "com.amdocs.digital.ms",
+                    "severity": "TRACE"
+                },
+                {
+                    "name": "org.apache.hc.client5.http",
+                    "severity": "TRACE"
+                }
+            ]
+        }
+    ]
+};

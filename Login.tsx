@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { Radar, Lock, Globe, Activity, ChevronRight, Server, Link2, UserCircle, CheckCircle2, Search, Database, AlertCircle } from 'lucide-react';
-import { SAVED_PROFILES, DEMO_SERVICES, ENVIRONMENTS, CLUSTERS, API_PATHS, API_URL_TEMPLATE, AUTH_URL_TEMPLATE } from './constants';
+import { SAVED_PROFILES, ENVIRONMENTS, CLUSTERS, API_PATHS, API_URL_TEMPLATE, AUTH_URL_TEMPLATE } from './constants';
+import { DEMO_SERVICES } from './data/demoServices';
 import type { Service, LogLevel, SavedProfile } from './types';
 
 interface LoginProps {
