@@ -1,3 +1,4 @@
+
 export interface AuthTokenResponse {
   accessToken: string;
   refreshToken?: string;
@@ -16,45 +17,42 @@ interface ProxyConfig {
 
 const DEFAULT_CLIENT_ID = 'apigw';
 
-// Helper to determine proxy URL
+// Helper to determine proxy URL - ALIGNED with integrationService.ts
 const getProxyConfig = (originalUrl: string): ProxyConfig => {
-  const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
-  const isLocal = (
-      hostname === 'localhost' || 
-      hostname === '127.0.0.1' ||
-      hostname === '0.0.0.0' ||
-      window.location.port === '3000' // Vite default port
-  );
+  // USER REQUEST: Disable automatic proxying to localhost.
+  // The application will now attempt to hit the Auth Endpoint directly.
+  return { url: originalUrl, headers: {} };
   
-  // If running locally, route through the dev server proxy to avoid CORS errors
+  /*
+  const isLocal = (import.meta as any).env?.DEV || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  
   if (isLocal) {
     try {
-      // If it's already a relative path, use it directly
       if (!originalUrl.startsWith('http')) {
            return { url: originalUrl, headers: {} };
       }
       
       const urlObj = new URL(originalUrl);
-      
-      // If same origin, no proxy needed
       if (urlObj.origin === window.location.origin) {
-        return { url: originalUrl, headers: {} };
+          return { url: originalUrl, headers: {} };
       }
 
-      // Extract just the pathname for CRA/Vite proxy
-      // e.g., https://keycloak.../auth/realms/apigw/protocol/openid-connect/token
-      //    -> /auth/realms/apigw/protocol/openid-connect/token
-      // The dev server proxy (setupProxy.js) will forward /auth/* to Keycloak
-      const proxyUrl = urlObj.pathname + urlObj.search;
-      console.log(`[AuthService] Proxying: ${originalUrl} -> ${proxyUrl}`);
-      return { url: proxyUrl, headers: {} };
-    } catch (e) {
-      console.warn("[AuthService] URL Parse Error:", e);
+      // Use /cors-proxy for dynamic routing. 
+      const proxyUrl = `/cors-proxy${urlObj.pathname}${urlObj.search}`;
+      
+      return { 
+          url: proxyUrl, 
+          headers: { 
+              'x-target-origin': urlObj.origin 
+          } 
+      };
+    } catch (_e) {
+      console.warn("[AuthService] Failed to parse URL for proxying.");
       return { url: originalUrl, headers: {} };
     }
   }
-
   return { url: originalUrl, headers: {} };
+  */
 };
 
 export async function authenticate(
@@ -76,15 +74,17 @@ export async function authenticate(
 
     const params = new URLSearchParams();
     
+    // --- BUILD PARAMETERS ---
     if (strategy === 'PASSWORD_GRANT') {
         params.append('grant_type', 'password');
+        // Ensure client_id is passed if required by the realm
         if (publicClientId) params.append('client_id', publicClientId);
         params.append('username', principal);       
         params.append('password', secret);          
        
     } else {
+        // SERVICE LOGIN
         params.append('grant_type', 'client_credentials');
-        
         
         if (strategy === 'BASIC') {
             const credentials = btoa(`${principal}:${secret}`);
@@ -97,7 +97,15 @@ export async function authenticate(
 
     // Use proxy URL if local, otherwise direct
     const { url: fetchUrl, headers: proxyHeaders } = getProxyConfig(authEndpoint);
-    console.log(`[Auth] Fetching: ${fetchUrl} (Original: ${authEndpoint})`);
+    
+    // DEBUG LOG: Print what we are sending (hide secret)
+    const debugParams = new URLSearchParams(params);
+    if (debugParams.has('password')) debugParams.set('password', '***');
+    if (debugParams.has('client_secret')) debugParams.set('client_secret', '***');
+    console.log(`[Auth] Strategy: ${strategy}`);
+    console.log(`[Auth] Target: ${authEndpoint}`);
+    console.log(`[Auth] Proxy:  ${fetchUrl}`);
+    console.log(`[Auth] Payload: ${debugParams.toString()}`);
 
     const response = await fetch(fetchUrl, {
       method: 'POST',
@@ -110,14 +118,19 @@ export async function authenticate(
     if (!response.ok) {
       const errorText = await response.text();
       let errorMsg = `HTTP ${response.status} ${response.statusText}`;
+      
+      // Try to parse Keycloak specific JSON error
       try {
         if (errorText) {
             const errJson = JSON.parse(errorText);
+            console.error(`[Auth] ${strategy} Failed JSON:`, errJson);
             const description = errJson.error_description || errJson.error || errJson.message;
-            if (description) errorMsg = description;
+            if (description) errorMsg = `Auth Failed: ${description}`;
+        } else {
+             console.error(`[Auth] ${strategy} Failed Text:`, errorText);
         }
       } catch (e) {
-         if (errorText) errorMsg = errorText.substring(0, 100);
+         if (errorText) errorMsg = `${errorMsg} - ${errorText.substring(0, 100)}`;
       }
       throw new Error(errorMsg);
     }
@@ -125,25 +138,33 @@ export async function authenticate(
     return await response.json();
   };
 
-  // 1. User Login (Password Grant)
+  // --- AUTOMATIC FALLBACK STRATEGY ---
+
+  // 1. If explicit user login requested, try Password Grant immediately
   if (isUserLogin) {
       return parseTokenData(await executeAuthRequest('PASSWORD_GRANT'));
   }
 
-  // 2. Service Login (Client Credentials) - Retry logic
+  // 2. Otherwise, try sequence: Body -> Basic -> Password
   try {
+    // Attempt A: Standard Client Credentials (Body)
     return parseTokenData(await executeAuthRequest('BODY'));
   } catch (err: any) {
-    console.warn("Auth Strategy 1 (Body) failed:", err.message);
-    const isCredError = err.message.includes('401') || err.message.includes('400') || err.message.includes('unauthorized');
+    console.warn("Auth Strategy 1 (Client Body) failed:", err.message);
     
-    if (isCredError) {
+    try {
+        // Attempt B: Client Credentials (Basic Auth Header)
+        return parseTokenData(await executeAuthRequest('BASIC'));
+    } catch (err2: any) {
+        console.warn("Auth Strategy 2 (Client Basic) failed:", err2.message);
+
+        // Attempt C: Password Grant (User)
         try {
-            console.log("Retrying with Strategy 2 (Basic Auth)...");
-            return parseTokenData(await executeAuthRequest('BASIC'));
-        } catch (err2) { /* ignore */ }
+             return parseTokenData(await executeAuthRequest('PASSWORD_GRANT'));
+        } catch (err3) {
+             throw new Error(err.message); // Throw the first error as it's usually the most relevant for Service Accounts
+        }
     }
-    throw err;
   }
 }
 

@@ -13,44 +13,8 @@ interface ProxyConfig {
 
 // Helper to determine proxy URL
 const getProxyConfig = (originalUrl: string): ProxyConfig => {
-  // Check if we are in dev mode OR if we are serving from localhost (preview mode)
-  const isLocal = (import.meta as any).env?.DEV || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-  
-  if (isLocal) {
-    try {
-      if (!originalUrl.startsWith('http')) {
-           return { url: originalUrl, headers: {} };
-      }
-      
-      const urlObj = new URL(originalUrl);
-      if (urlObj.origin === window.location.origin) {
-          return { url: originalUrl, headers: {} };
-      }
-
-      // NEW STRATEGY: Header-based Routing with Cleaner URLs
-      // 1. If path is a known app path, use it directly (cleaner URL in network tab)
-      //    Vite proxy must be configured to capture '/lightTracer'
-      if (urlObj.pathname.startsWith('/lightTracer')) {
-          return { 
-             url: `${urlObj.pathname}${urlObj.search}`,
-             headers: { 'x-target-origin': urlObj.origin }
-          };
-      }
-
-      // 2. Fallback: Use /cors-proxy prefix
-      const proxyUrl = `/cors-proxy${urlObj.pathname}${urlObj.search}`;
-      
-      return { 
-          url: proxyUrl, 
-          headers: { 
-              'x-target-origin': urlObj.origin 
-          } 
-      };
-    } catch (_e) {
-      console.warn("[IntegrationService] Failed to parse URL for proxying.");
-      return { url: originalUrl, headers: {} };
-    }
-  }
+  // USER REQUEST: Disable automatic proxying to localhost.
+  // The application will now attempt to hit the API endpoints directly.
   return { url: originalUrl, headers: {} };
 };
 
@@ -89,8 +53,6 @@ export async function fetchEnvironmentServices(
       
       try {
           const result = await executeFetch(targetUrl, token, discoveryPayload, method);
-          // Only return if we actually found services. If result is empty, we might want to try next candidate
-          // unless it was the specific configured path.
           if (result.length > 0 || path === originalPath) {
              console.log(`[Discovery] Connected successfully to: ${targetUrl}`);
              return { services: result, resolvedUrl: targetUrl };
@@ -98,8 +60,8 @@ export async function fetchEnvironmentServices(
       } catch (err: any) {
           console.warn(`[Discovery] Attempt failed at ${targetUrl}: ${err.message}`);
           lastError = err;
-          // Stop on explicit Auth failure to prevent account lockouts
-          if (err.message && err.message.includes('401')) throw err;
+          // Stop on explicit Auth/Permission failure
+          if (err.message && (err.message.includes('401') || err.message.includes('403'))) throw err;
       }
   }
 
@@ -122,7 +84,6 @@ function findServiceArray(data: any): any[] {
     }
     
     // 2. Check for wrapped JSON strings (Double encoded responses)
-    // e.g. { "d": "[{...}]" }
     for (const key of keys) {
         if (typeof data[key] === 'string') {
             try {
@@ -159,9 +120,8 @@ async function executeFetch(targetUrl: string, token: string, payload: any, meth
 
     let response: Response | undefined;
     try {
-       response = await fetch(fetchUrl, options);
+        response = await fetch(fetchUrl, { ...options, cache: 'no-store', keepalive: true });
     } catch (e: any) {
-        // This catches the specific "Failed to fetch" error caused by CORS blocks
         console.warn(`[Discovery] Network request failed for ${fetchUrl}`, e);
         throw new Error("Network blocked. The corporate gateway rejected the connection (CORS).");
     }
@@ -170,12 +130,19 @@ async function executeFetch(targetUrl: string, token: string, payload: any, meth
         throw new Error("No response received from the server.");
     }
 
+    if (response.status === 403) {
+        throw new Error("HTTP 403 Forbidden: Access Denied. Your credentials may lack permission to access managementLoggers.");
+    }
+
     let data: any = null;
     let rawList: any[] = [];
 
-    // Attempt to parse JSON regardless of status code
     try {
         const text = await response.text();
+        if (text) {
+             console.log("[Discovery] Raw Response Preview:", text.substring(0, 500));
+        }
+
         if (text) {
             try {
                 data = JSON.parse(text);
@@ -183,14 +150,11 @@ async function executeFetch(targetUrl: string, token: string, payload: any, meth
             } catch (_e) {
                 console.warn("[Discovery] JSON Parse failed, raw text:", text.substring(0, 100));
             }
-        } else {
-             console.warn("[Discovery] Response body is empty.");
         }
     } catch (e) {
         console.warn("[Discovery] Response reading failed", e);
     }
 
-    // If we failed to get data AND the response was an error
     if (!response.ok && rawList.length === 0) {
         let errorDetails = response.statusText;
         if (data && (data.message || data.error)) {
@@ -199,7 +163,6 @@ async function executeFetch(targetUrl: string, token: string, payload: any, meth
         throw new Error(`HTTP ${response.status}: ${JSON.stringify(errorDetails).substring(0, 100)}`);
     }
 
-    // Special handling: if rawList is empty but the root object looks like a service itself
     if (rawList.length === 0 && data && (data.id || data.name || data.serviceName)) {
         rawList = [data];
     }
@@ -228,8 +191,10 @@ export async function updateServiceLogLevel(
   } catch(_e) {}
 
   const standardPath = '/lightTracer/v1/managementLoggers';
+  // Standardize standardUrl to ensure no double slashes
   const standardUrl = `${baseUrl}${standardPath}`.replace(/([^:]\/)\/+/g, "$1");
 
+  // If apiEndpoint already contains the path, this array will effectively be deduped to 1 entry
   const candidates: { url: string; payload: any }[] = [
     { url: apiEndpoint, payload },
     { url: standardUrl, payload } // Fallback
@@ -258,9 +223,21 @@ export async function updateServiceLogLevel(
           },
           body: JSON.stringify(candidate.payload)
         });
-        if (response.ok) return true;
+        
+        if (response.status === 403) {
+            console.warn(`[Update] 403 Forbidden at ${candidate.url} - check permissions.`);
+            continue;
+        }
+
+        if (response.ok) {
+             console.log(`[Update] Success at ${fetchUrl}`);
+             return true;
+        } else {
+             // Explicitly warn so user sees why it failed in console, then continue to next candidate
+             console.warn(`[Update] Request to ${candidate.url} returned HTTP ${response.status}. Trying next candidate if available.`);
+        }
       } catch (e) {
-        console.error(`[Update] Error at ${candidate.url}`, e);
+        console.error(`[Update] Network error at ${candidate.url}`, e);
       }
   }
   return false;
