@@ -2,7 +2,7 @@
 import type { Service } from '../types';
 
 export const DEMO_SERVICES: Service[] = [
-  { id: 'auth-svc', name: 'Authentication Service', defaultLevel: 'ERROR' },
+  { id: 'productorder-returnnotecust-service', name: 'productorder-returnnotecust', defaultLevel: 'ERROR' },
   { id: 'order-api', name: 'Order Processing API', defaultLevel: 'ERROR' },
   { id: 'payment-gw', name: 'Payment Gateway', defaultLevel: 'ERROR' },
   { id: 'inventory-svc', name: 'Inventory Manager', defaultLevel: 'ERROR' },

@@ -1,12 +1,13 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings,Zap, Clock, Trash2, Check, LogOut, ListFilter, LayoutDashboard, Wifi, WifiOff, AlertTriangle, Loader2, RefreshCw } from 'lucide-react';
+import { Settings, Zap, Clock, Trash2, Check, LogOut, ListFilter, LayoutDashboard, Wifi, WifiOff, AlertTriangle, Loader2, RefreshCw } from 'lucide-react';
 import type { ActiveOverride, LogLevel, User, Service } from './types';
 import { ENVIRONMENTS, LOG_LEVELS, DURATION_OPTIONS, EXPIRY_WARNING_THRESHOLD_MS, DEFAULT_DISCOVERY_PAYLOAD } from './constants';
 import { DEMO_SERVICES } from './data/demoServices';
 import TimerCircle from './components/TimerCircle';
 import DecisionModal from './components/DecisionModal';
 import Login from './components/Login';
+import AiAssistant from './components/AiAssistant';
 import { fetchEnvironmentServices, updateServiceLogLevel } from './services/integrationService';
 
 const STORAGE_KEY = 'logflow_active_overrides';
@@ -92,17 +93,26 @@ const App: React.FC = () => {
         return;
     }
 
-    // 3. Attempt Real Fetch with Fallback
+    // 3. Attempt Real Fetch
     setConnectionStatus('connected');
+    
+    // If services were already discovered in Login.tsx, use them
+    if (initialServices && initialServices.length > 0) {
+        setAvailableServices(initialServices);
+        return;
+    }
+
+    // Otherwise, fetch from App context
     setIsFetchingServices(true);
     setAvailableServices([]); 
 
-    try {
+    if(!isDemoMode){
+            try {
         const discoveryResult = await fetchEnvironmentServices(
             apiEndpoint, 
             password, 
             DEFAULT_DISCOVERY_PAYLOAD, 
-            'GET'
+            'POST' // RESTORED: Uses POST to ensure payload is sent
         );
         
         setAvailableServices(discoveryResult.services);
@@ -111,15 +121,15 @@ const App: React.FC = () => {
         }
 
     } catch (error: any) {
-        console.warn("Service Discovery Failed. Switching to Demo Mode.", error);
-        
-        // AUTOMATIC FALLBACK TO DEMO
-        setConnectionStatus('demo');
-        setAvailableServices(DEMO_SERVICES);
-        setFallbackMessage("Backend connection failed (403/404). Loaded demo data for simulation.");
+        console.warn("Service Discovery Failed.", error);
+        setConnectionStatus('offline'); 
+        setAvailableServices([]);
+        setFallbackMessage(`Discovery failed: ${error.message || 'Unknown network error'}`);
     } finally {
         setIsFetchingServices(false);
     }
+    }
+
   };
 
   const retryServiceFetch = async () => {
@@ -127,19 +137,26 @@ const App: React.FC = () => {
     setIsFetchingServices(true);
     setFallbackMessage(null);
     try {
-        const res = await fetchEnvironmentServices(user.apiEndpoint, user.apiToken || '', DEFAULT_DISCOVERY_PAYLOAD, 'GET');
+        // RESTORED: Uses POST
+        const res = await fetchEnvironmentServices(user.apiEndpoint, user.apiToken || '', DEFAULT_DISCOVERY_PAYLOAD, 'POST');
         setAvailableServices(res.services);
         setConnectionStatus('connected');
         if (res.resolvedUrl !== user.apiEndpoint) {
              setUser(prev => prev ? ({ ...prev, apiEndpoint: res.resolvedUrl }) : null);
         }
-    } catch (e) {
+    } catch (e: any) {
         console.error("Retry failed", e);
-        setConnectionStatus('demo');
-        setFallbackMessage("Retry failed. Still in demo mode.");
+        setConnectionStatus('offline');
+        setFallbackMessage(`Retry failed: ${e.message || 'Unknown error'}`);
     } finally {
         setIsFetchingServices(false);
     }
+  };
+
+  const handleSwitchToDemo = () => {
+    setConnectionStatus('demo');
+    setAvailableServices(DEMO_SERVICES);
+    setFallbackMessage(null);
   };
 
   const handleLogout = () => {
@@ -296,6 +313,10 @@ const App: React.FC = () => {
       setActiveOverrides(prev => prev.filter(o => o.id !== override.id));
   };
   
+  const handleApplySuggestion = (serviceId: string, level: LogLevel) => {
+    setSelectedServices(new Set([serviceId]));
+    setSelectedLevel(level);
+  };
 
   if (!user) return <Login onLogin={handleLogin} />;
 
@@ -323,9 +344,9 @@ const App: React.FC = () => {
                    </div>
                </div>
                <div className="flex items-center gap-4">
-                   <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border flex items-center gap-2 ${connectionStatus === 'connected' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-amber-50 text-amber-600 border-amber-200'}`}>
-                       {connectionStatus === 'connected' ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-                       {connectionStatus === 'connected' ? 'Live Connection' : 'Demo Mode'}
+                   <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border flex items-center gap-2 ${connectionStatus === 'connected' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : connectionStatus === 'demo' ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-rose-50 text-rose-600 border-rose-200'}`}>
+                       {connectionStatus === 'connected' ? <Wifi className="w-3 h-3" /> : connectionStatus === 'demo' ? <Clock className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+                       {connectionStatus === 'connected' ? 'Live Connection' : connectionStatus === 'demo' ? 'Demo Mode' : 'Connection Error'}
                    </div>
                    <button onClick={handleLogout} className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors"><LogOut className="w-5 h-5" /></button>
                </div>
@@ -333,32 +354,17 @@ const App: React.FC = () => {
        </header>
 
        <main className="max-w-7xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
-           <div className="lg:col-span-7 space-y-6">
-               <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 space-y-6">
-                   <h2 className="text-lg font-black text-slate-800 flex items-center gap-2"><Settings className="w-5 h-5 text-indigo-500" /> Configuration Control</h2>
-                   <div className="space-y-3">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Target Severity Level</label>
-                       <div className="flex gap-2">
-                           {LOG_LEVELS.map(level => (
-                               <button key={level} onClick={() => setSelectedLevel(level)} className={getLevelButtonStyles(level, selectedLevel === level)}>{level}</button>
-                           ))}
-                       </div>
-                   </div>
-                   <div className="space-y-3">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Override Duration</label>
-                       <div className="grid grid-cols-5 gap-2">
-                           {DURATION_OPTIONS.map(opt => (
-                               <button key={opt.label} onClick={() => setSelectedDuration(opt.value)} className={`py-2 rounded-xl text-xs font-bold border transition-all ${selectedDuration === opt.value ? 'bg-slate-800 text-white border-slate-800 shadow-md' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}>{opt.label}</button>
-                           ))}
-                       </div>
-                   </div>
-                   <button onClick={handleApplyChanges} disabled={selectedServices.size === 0 || isApplying} className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 text-white py-4 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-indigo-100 transition-all active:scale-[0.99] flex items-center justify-center gap-2">
-                       {isApplying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                       {selectedServices.size === 0 ? 'Select Services Below' : `Apply to ${selectedServices.size} Service(s)`}
-                   </button>
-               </div>
+           {/* 0. AI ASSISTANT */}
+           <div className="lg:col-span-12">
+               <AiAssistant 
+                   availableServices={availableServices} 
+                   onApplySuggestion={handleApplySuggestion} 
+               />
+           </div>
 
-               {/* SERVICE LIST AREA */}
+           <div className="lg:col-span-7 space-y-6">
+               
+               {/* 1. SERVICE LIST AREA (Now First) */}
                <div className="space-y-4">
                    <div className="flex items-center justify-between px-2">
                        <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest">Available Services</h3>
@@ -386,9 +392,12 @@ const App: React.FC = () => {
                             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
                                 <AlertTriangle className="w-10 h-10 text-amber-500 mb-3 opacity-50" />
                                 <h3 className="text-sm font-black text-slate-700">No Services Found</h3>
-                                <p className="text-xs text-slate-400 max-w-[250px] mt-1 mb-4">Discovery returned empty results.</p>
+                                <p className="text-xs text-slate-400 max-w-[250px] mt-1 mb-4">Discovery returned empty results or connection failed.</p>
                                 <button onClick={retryServiceFetch} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-colors">
                                     <RefreshCw className="w-3 h-3" /> Retry Discovery
+                                </button>
+                                <button onClick={handleSwitchToDemo} className="mt-4 text-[10px] font-bold text-indigo-500 hover:text-indigo-600 hover:underline uppercase tracking-wide">
+                                    Continue with Demo Services
                                 </button>
                             </div>
                         ) : (
@@ -410,6 +419,31 @@ const App: React.FC = () => {
                             </div>
                         )}
                    </div>
+               </div>
+
+               {/* 2. CONFIGURATION CONTROL (Now Second) */}
+               <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 space-y-6">
+                   <h2 className="text-lg font-black text-slate-800 flex items-center gap-2"><Settings className="w-5 h-5 text-indigo-500" /> Configuration Control</h2>
+                   <div className="space-y-3">
+                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Target Severity Level</label>
+                       <div className="flex gap-2">
+                           {LOG_LEVELS.map(level => (
+                               <button key={level} onClick={() => setSelectedLevel(level)} className={getLevelButtonStyles(level, selectedLevel === level)}>{level}</button>
+                           ))}
+                       </div>
+                   </div>
+                   <div className="space-y-3">
+                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Override Duration</label>
+                       <div className="grid grid-cols-5 gap-2">
+                           {DURATION_OPTIONS.map(opt => (
+                               <button key={opt.label} onClick={() => setSelectedDuration(opt.value)} className={`py-2 rounded-xl text-xs font-bold border transition-all ${selectedDuration === opt.value ? 'bg-slate-800 text-white border-slate-800 shadow-md' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}>{opt.label}</button>
+                           ))}
+                       </div>
+                   </div>
+                   <button onClick={handleApplyChanges} disabled={selectedServices.size === 0 || isApplying} className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 text-white py-4 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-indigo-100 transition-all active:scale-[0.99] flex items-center justify-center gap-2">
+                       {isApplying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                       {selectedServices.size === 0 ? 'Select Services Above' : `Apply to ${selectedServices.size} Service(s)`}
+                   </button>
                </div>
            </div>
 

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Radar, Lock, ChevronRight, Link2, UserCircle, AlertCircle, CheckCircle2, ArrowRight } from 'lucide-react';
+import { Radar, Lock, ChevronRight, Link2, UserCircle, AlertCircle, CheckCircle2, ArrowRight, Activity } from 'lucide-react';
 import { SAVED_PROFILES, ENVIRONMENTS, CLUSTERS, API_PATHS, API_URL_TEMPLATE, AUTH_URL_TEMPLATE, DEFAULT_REALM } from '../constants';
 import { authenticate } from '../services/authService';
 import type { Service, SavedProfile } from '../types';
@@ -69,19 +69,24 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
     try {
         // 1. Authenticate Only
-        await authenticate(
+        const authResponse = await authenticate(
             constructedAuthUrl,
             username,
             password,
             { isUserLogin: true, publicClientId }
         );
 
-        // 2. Success - Move to Dashboard immediately
+        // CONFIRMATION: Log success to console as requested
+        console.log("Connection Successful", authResponse);
+
+        // 2. Success UI State
         setIsSuccess(true);
-        setTimeout(async () => {
-            await onLogin(
+        
+        // 3. Transition to Dashboard (with slight delay for UX)
+        setTimeout(() => {
+            onLogin(
                 username, 
-                password, 
+                authResponse.accessToken, 
                 targetApiUrl, 
                 constructedAuthUrl, 
                 [], // Empty list triggers background fetch in App.tsx
@@ -91,12 +96,13 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 publicClientId,
                 false // Not demo mode
             );
-        }, 500);
+        }, 1000);
 
     } catch (err: any) {
       console.error("Login failed:", err);
       setErrorMsg(err.message || "Authentication failed.");
       setIsLoading(false);
+      setIsSuccess(false);
     }
   };
 
@@ -191,6 +197,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                  </div>
                  <div className="space-y-3 pt-2 bg-slate-900/20 p-4 rounded-xl border border-slate-800/50">
                     <UrlPreview label="Target API Path" url={`${constructedApiUrl}${API_PATHS.DISCOVERY}`} />
+                    <UrlPreview label="Target Auth Provider" url={constructedAuthUrl} />
                  </div>
               </div>
 
@@ -206,8 +213,26 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
               )}
 
               <div className="pt-2">
-                <button type="submit" disabled={isLoading || isSuccess} className={`w-full font-bold py-4 rounded-xl shadow-lg flex items-center justify-center gap-2 ${isSuccess ? 'bg-emerald-500 text-white' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}>
-                    {isSuccess ? <><CheckCircle2 className="w-5 h-5" /> Connected</> : <><ArrowRight className="w-4 h-4" /> Connect to Environment</>}
+                <button 
+                    type="submit" 
+                    disabled={isLoading || isSuccess} 
+                    className={`w-full font-bold py-4 rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all duration-300 ${
+                        isSuccess 
+                        ? 'bg-emerald-500 text-white transform scale-[1.02] cursor-default' 
+                        : 'bg-indigo-600 hover:bg-indigo-500 text-white active:scale-[0.98]'
+                    }`}
+                >
+                    {isSuccess ? (
+                        <>
+                            <CheckCircle2 className="w-5 h-5 animate-bounce" /> 
+                            Connection Successful
+                        </>
+                    ) : (
+                        <>
+                            {isLoading ? <Activity className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+                            {isLoading ? 'Authenticating...' : 'Connect to Environment'}
+                        </>
+                    )}
                 </button>
               </div>
             </form>

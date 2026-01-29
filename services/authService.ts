@@ -1,5 +1,3 @@
-
-
 export interface AuthTokenResponse {
   accessToken: string;
   refreshToken?: string;
@@ -25,9 +23,7 @@ const getProxyConfig = (originalUrl: string): ProxyConfig => {
       hostname === 'localhost' || 
       hostname === '127.0.0.1' ||
       hostname === '0.0.0.0' ||
-      window.location.port === '3000' ||
-      window.location.port === '3005' ||
-      window.location.port === '3005'
+      window.location.port === '3000' // Vite default port
   );
   
   // If running locally, route through the dev server proxy to avoid CORS errors
